@@ -1,0 +1,132 @@
+# Machine Learning Viva Voce & Defense Guide
+## Project: Automated Sentiment Analysis and Insight Extraction from Customer Feedback
+**Subject:** Machine Learning (5th Semester B.Tech / B.E. / BCA / MCA / B.Sc CS)
+
+---
+
+## 1. Project Overview & Business Motivation
+
+### Q1: What is the primary objective of your project?
+**Answer:** The primary objective is to build an automated, end-to-end Machine Learning and NLP platform that ingests raw, unstructured customer feedback, classifies its sentiment (Positive, Neutral, Negative) with high confidence, and performs **Aspect-Based Sentiment Analysis (ABSA)** and **Topic Modeling (LDA)** to extract actionable business insights and operational recommendations.
+
+### Q2: Why is "Insight Extraction" necessary if we already have Sentiment Classification?
+**Answer:** Standard sentiment classification only outputs a polarity label (e.g., *"This review is 95% Negative"*). However, an executive or product manager cannot act on just a label; they need to know **why** the customer is unhappy. Insight extraction pinpoints the exact operational department responsible (e.g., *Delivery delay*, *Hardware defect*, or *App Bluetooth crash*) and quantifies the complaint volume to prioritize managerial interventions.
+
+---
+
+## 2. Text Preprocessing & NLP Pipeline
+
+### Q3: What preprocessing steps did you implement on raw text?
+**Answer:**
+1. **Contraction Expansion:** Normalizing colloquial contractions (e.g., *"won't"* $\to$ *"will not"*, *"didn't"* $\to$ *"did not"*).
+2. **Noise Removal:** Stripping HTML tags, URLs, email addresses, numbers, and special non-alphanumeric symbols.
+3. **Negation-Aware Stopword Removal:** Standard NLTK stopword lists remove words like *"not"*, *"no"*, *"never"*. In our pipeline, we explicitly preserve negation words so that *"not good"* is never transformed into *"good"*.
+4. **WordNet Lemmatization:** Reducing inflected word forms to their canonical dictionary root (lemma) using both verb and noun Part-of-Speech tagging (e.g., *"crashed"* $\to$ *"crash"*, *"batteries"* $\to$ *"battery"*).
+
+### Q4: What is the difference between Stemming and Lemmatization? Why did you choose Lemmatization?
+**Answer:**
+- **Stemming** (e.g., Porter Stemmer) is a rule-based heuristic that chops off word affixes (prefixes/suffixes). It often produces non-real words (e.g., *"university"* $\to$ *"univers"*, *"trouble"* $\to$ *"troubl"*).
+- **Lemmatization** uses a vocabulary and morphological analysis (WordNet lexical database) to return the actual valid base form (lemma) (e.g., *"better"* $\to$ *"good"*, *"crashes"* $\to$ *"crash"*).
+- We chose Lemmatization because semantic validity is critical when interpreting TF-IDF feature weights and topic modeling clusters.
+
+### Q5: Why is negation handling critical in Sentiment Analysis?
+**Answer:** In sentiment analysis, negation words (*"not"*, *"never"*, *"hardly"*, *"neither"*) invert the polarity of the adjacent adjective or verb. If stopword filtering naively deletes *"not"*, the phrase *"not satisfied with battery"* reduces to *"satisfied battery"*, completely flipping the predicted class from Negative to Positive.
+
+---
+
+## 3. Feature Engineering & TF-IDF
+
+### Q6: What is TF-IDF and how is it mathematically formulated?
+**Answer:** TF-IDF stands for **Term Frequency - Inverse Document Frequency**. It reflects how important a word is to a document in a collection or corpus.
+$$\text{TF-IDF}(t, d, D) = \text{TF}(t, d) \times \text{IDF}(t, D)$$
+Where:
+- **$\text{TF}(t, d)$** is the frequency of term $t$ in document $d$ (often sublinearly scaled: $1 + \log(\text{TF})$).
+- **$\text{IDF}(t, D)$** measures how common or rare a term is across all documents:
+$$\text{IDF}(t, D) = \ln\left(\frac{1 + |D|}{1 + \text{DF}(t, D)}\right) + 1$$
+High TF-IDF occurs when a term appears frequently in a single document but rarely across the entire corpus, filtering out background noise.
+
+### Q7: Why did you use Unigrams and Bigrams (`ngram_range=(1, 2)`)?
+**Answer:** Unigrams alone cannot capture sequence context or negation pairings. By including bigrams, the vectorizer retains informative word pairs like *"not working"*, *"poor quality"*, *"fast delivery"*, and *"rude staff"*, which strongly correlate with specific sentiment classes.
+
+### Q8: What is Data Leakage in text classification and how did you prevent it?
+**Answer:** Data leakage occurs when information from the test dataset leaks into the training pipeline before model training. If you fit `TfidfVectorizer.fit()` on the entire dataset before splitting, the vocabulary IDF weights include information from the test set. We strictly followed the **Featurization Ordering Rule**: split the raw data into $80\%$ Train and $20\%$ Test first; call `fit_transform()` exclusively on the Training set, and only call `transform()` on the Test set.
+
+---
+
+## 4. Machine Learning Algorithms & Mathematical Foundations
+
+### Q9: Which algorithms did you benchmark, and which performed best?
+**Answer:** We benchmarked 4 diverse algorithms:
+1. **Multinomial Naive Bayes (MultinomialNB)**
+2. **Logistic Regression (L2 regularized)**
+3. **Linear Support Vector Machine (LinearSVC with Probability Calibration)**
+4. **Random Forest Classifier (Ensemble of 150 Decision Trees)**
+
+**Winning Model:** **Linear SVM / Logistic Regression** achieved the highest Test F1-Macro ($\ge 94\%$) and lowest inference latency ($\approx 0.05$ ms/sample).
+
+### Q10: Explain the mathematics of Multinomial Naive Bayes. What is the "naive" assumption?
+**Answer:** By Bayes' Theorem:
+$$P(y = c \mid \mathbf{x}) = \frac{P(y = c) \prod_{i=1}^n P(x_i \mid y = c)}{P(\mathbf{x})}$$
+- **The Naive Assumption:** It assumes that all feature words $x_i$ are conditionally independent given the class label $c$, which is linguistically untrue (words strongly correlate with each other). Despite this violation, Naive Bayes performs surprisingly well for text classification because the decision boundary can be accurate even when probabilities are poorly calibrated.
+- **Laplace Smoothing ($\alpha$):**
+$$P(w_i \mid c) = \frac{N_{ci} + \alpha}{N_c + \alpha |V|}$$
+Where $\alpha = 0.5$ or $1.0$. Smoothing prevents zero-probability multiplication when an unseen word appears at test time.
+
+### Q11: Why does Linear SVM perform exceptionally well on high-dimensional text data?
+**Answer:**
+1. Text representations using TF-IDF are very high-dimensional (e.g., 5,000 features) and sparse.
+2. Cover's Theorem states that a complex classification problem cast into a high-dimensional space is more likely to be linearly separable than in a low-dimensional space.
+3. Linear SVM finds the maximum margin hyperplane $\mathbf{w}^T \mathbf{x} + b = 0$ that maximizes $\frac{2}{\|\mathbf{w}\|}$ while penalizing margin violations using hinge loss with regularization parameter $C$:
+$$\min_{\mathbf{w}, b, \boldsymbol{\xi}} \frac{1}{2} \|\mathbf{w}\|^2 + C \sum_{i=1}^n \xi_i \quad \text{s.t.} \quad y_i(\mathbf{w}^T \mathbf{x}_i + b) \ge 1 - \xi_i, \quad \xi_i \ge 0$$
+4. Since Linear SVM maximizes margins, it does not easily overfit even with thousands of features.
+
+### Q12: Why did you wrap LinearSVC with `CalibratedClassifierCV`?
+**Answer:** Standard `LinearSVC` optimizes the hinge loss and outputs signed geometric distances from the decision boundary, not normalized probabilities $[0, 1]$. To display confidence meters and class probability distributions on our web dashboard, we applied **Platt Scaling** (`CalibratedClassifierCV`), which fits a logistic sigmoid over the SVM decision values using cross-validation.
+
+### Q13: Why did Random Forest have higher latency or lower efficiency than Linear SVM on text?
+**Answer:** Random Forest builds multiple axis-aligned decision trees. High-dimensional sparse TF-IDF matrices (thousands of columns with mostly zeros) force decision trees to evaluate deep, fragmented splits across sparse features, consuming significant memory and training time without outperforming the smooth global linear boundary established by SVM or Logistic Regression.
+
+---
+
+## 5. Evaluation Metrics & Error Analysis
+
+### Q14: Why did you rely on Macro-F1 rather than simple Accuracy?
+**Answer:** Real-world customer reviews are often class-imbalanced (e.g., positive reviews often outnumber neutral reviews). A naive majority-class classifier could achieve 70% accuracy while failing completely on neutral or negative cases. **Macro-averaged F1-Score** calculates the harmonic mean of Precision and Recall independently for each class and averages them with equal weight:
+$$\text{Macro-F1} = \frac{\text{F1}_{\text{Negative}} + \text{F1}_{\text{Neutral}} + \text{F1}_{\text{Positive}}}{3}$$
+This penalizes models that neglect minority classes.
+
+### Q15: Explain the Confusion Matrix. What are False Positives and False Negatives in our business context?
+**Answer:**
+- **True Positive (TP):** Correctly predicted negative review as Negative.
+- **False Positive (FP):** Predicting a review as Negative when it was actually Positive (unnecessary escalation).
+- **False Negative (FN):** Predicting a review as Positive when it was actually a severe complaint (missed critical issue; highest business risk).
+In customer satisfaction analytics, minimizing False Negatives on severe complaints is paramount to prevent customer churn.
+
+---
+
+## 6. Topic Modeling & Aspect-Based Sentiment Mining
+
+### Q16: How does Latent Dirichlet Allocation (LDA) work?
+**Answer:** LDA is an unsupervised generative probabilistic model:
+1. It assumes that every document is a mixture of a small number of latent topics: $\theta_d \sim \text{Dirichlet}(\boldsymbol{\alpha})$.
+2. Each topic is a multinomial distribution over vocabulary words: $\phi_k \sim \text{Dirichlet}(\boldsymbol{\beta})$.
+3. During training, Gibbs sampling or online variational inference iteratively updates topic assignments for each word to find cluster terms that co-occur across documents.
+
+### Q17: How does your Aspect-Based Sentiment Analysis (ABSA) system work?
+**Answer:**
+1. **Aspect Detection:** Reviews are scanned for domain keywords spanning five core business facets: *Product Quality*, *Customer Support*, *Delivery & Packaging*, *Pricing & Value*, and *Usability & UI*.
+2. **Clause Segmentation:** The feedback is split into clauses/sentences at punctuation boundaries.
+3. **Clause-Level Sentiment Attribution:** The sentiment classifier evaluates the isolated clause containing the aspect keyword. This correctly separates mixed reviews such as *"The phone screen is great, but shipping was delayed by a week"* into *Product Quality: Positive* and *Delivery: Negative*.
+
+---
+
+## 7. System Architecture, Deployment & Production Readiness
+
+### Q18: What is the inference time per review? Can this system scale to 1 million reviews?
+**Answer:**
+- Our measured inference latency is **$\approx 0.05$ ms per review** (over 15,000 predictions/second on a single CPU core).
+- **To scale to 1M reviews/day:**
+  1. Ingest reviews asynchronously via an Apache Kafka or RabbitMQ event queue.
+  2. Deploy the Python inference pipeline on Celery workers or containerized microservices (Docker + Kubernetes).
+  3. Cache frequent n-gram vectors using Redis.
+  4. Store analytics in PostgreSQL or ClickHouse for real-time executive dashboarding.
